@@ -1,0 +1,232 @@
+#!/usr/bin/python3
+
+import argparse
+import os
+import shutil
+import yaml
+from pathlib import Path
+from datetime import date
+from anytree import Node, RenderTree, search, PreOrderIter, PostOrderIter, LevelOrderIter
+from anytree.exporter import DictExporter
+from anytree.importer import DictImporter
+
+user_data_path      = str(Path.home())  + "/.config/pytodo"
+items_file_path     = user_data_path    + '/items.yml' 
+
+small_check_sign    = u'\u2713'
+large_check_sign    = u'\u2705'
+cross_sign          = u'\u2718'
+
+total_nodes         = 0
+
+class ArgumentException(Exception):
+    pass
+
+class bcolors:
+    OKGREEN = '\033[92m'
+    ENDC    = '\033[0m'
+
+def parse_input_args(args_list):
+    matchers = ['@']
+    matching = [s for s in args_list if any(xs in s for xs in matchers)]
+
+    _id         = None
+    _ret_val    = None
+
+    if(len(matching) > 1):
+        raise ArgumentException("You can have max 1 argument with '@' char")
+    if(len(matching) == 1):
+        _id = int(matching[0][1:])
+        args_list.remove(matching[0])
+
+    if(args_list):
+        _ret_val = ' '.join(args_list)
+
+    return _id, _ret_val
+
+def find_node(node, _id):
+    found = search.find(node, lambda node: node.id == int(_id))
+    return found
+
+def print_node(node):
+    if(node.id == 0):
+        nodestr = node.t_done + " " + date.today().strftime('%A') + " " + node.name
+    else:
+        nodestr = node.t_done + " " + str(node.id) + " " + node.name
+
+    if(node.children):
+        total_child = len(node.children)
+        needed_ch   = node.ch_needed
+        done_ch     = sum(1 for n in node.children if n.t_done == small_check_sign)
+
+        nodestr     += "\t(" + str(done_ch) + " / " + str(needed_ch) + " / " + str(total_child) + ")"
+
+    return nodestr
+
+def print_tree(node):
+    for pre, _, node in RenderTree(node):
+        color = bcolors.OKGREEN if (node.t_done == small_check_sign) else bcolors.ENDC
+        end_color = bcolors.ENDC
+
+        print(color + "%s%s" % (pre, print_node(node)) + end_color)    
+
+    print('\n')
+
+def assign_ids(root):
+    count = 0
+    for node in LevelOrderIter(root):
+        node.id = count
+        count += 1
+
+    return count
+
+def update_tree(root):
+    for node in PostOrderIter(root):
+        if(node.children):
+            curr_done = sum(1 for n in node.children if n.t_done == small_check_sign)
+            if(curr_done >= node.ch_needed):
+                node.t_done = small_check_sign
+
+    return root
+
+def days_passed(old_date):
+    return int((date.today() - old_date).days)
+
+def yaml_load():
+    global total_nodes
+    if(not os.path.isdir(user_data_path)):
+        Path(user_data_path).mkdir(parents=True, exist_ok=True)
+
+    fp = Path(items_file_path)
+    if(fp.is_file()):
+        f = open(items_file_path, "r")
+        dct = yaml.load(f, Loader = yaml.Loader)
+        f.close()
+        root = DictImporter().import_(dct)
+        total_nodes = assign_ids(root)
+    else:
+        root = Node("root", id = total_nodes, t_done = cross_sign, ch_needed = 1, start_date = date.today())
+        total_nodes = 1
+
+    root.name = str(date.today())
+
+    return root
+
+def yaml_write(root):
+    dct = DictExporter().export(root)
+    f = open(items_file_path, "w")
+    yaml.dump(dct, f)
+    f.close()
+
+root = yaml_load()
+
+parser = argparse.ArgumentParser(description='Input your desired command')
+g = parser.add_mutually_exclusive_group()
+g.add_argument('-a',    '--add',        nargs = '+',            help = "Add new item to work on, use @ sign to insert it as a subtask to task under @")
+g.add_argument('-d',    '--delete',     nargs = '+',            help = 'Use @ sign to delete existing item (think twice :)')
+g.add_argument('-e',    '--edit',       nargs = '+',            help = "Edit existing entry. Use @ to decide what item in the list is being changed")
+g.add_argument('-t',    '--done',       nargs = '+',            help = "Use @ to mark specific task done")
+g.add_argument('-sn',   '--setnum',     nargs = '+',            help = "Set number of needed tasks done in a specific group selected by @ sign")
+g.add_argument('-r',    '--reset',      action = 'store_true',  help = "Reset entire list to 'not done'")
+g.add_argument('-l',    '--list',       action = 'store_true',  help = "List your progress")
+g.add_argument('-rm',   '--uninstall',  action = 'store_true',  help = "Remove this program from your system")
+args = parser.parse_args()
+#print(args)
+
+if(args.add):
+    _id, new_arg = parse_input_args(args.add)
+
+    if((not new_arg)):
+        raise ArgumentException("Must have new text of item")
+
+    if(_id):
+        target_node = find_node(root, _id)
+        new_node = Node(new_arg, start_date=date.today(), id = total_nodes, t_done = cross_sign, ch_needed = 1, parent = target_node)
+    else:
+        new_node = Node(new_arg, start_date=date.today(), id = total_nodes, t_done = cross_sign, ch_needed = 1, parent = root)
+    
+    if(new_node.parent.children):
+        new_node.parent.ch_needed = len(new_node.parent.children)
+
+    yaml_write(root)
+
+
+if(args.delete):
+    _id, new_arg = parse_input_args(args.delete)
+
+    if((not _id) or (new_arg)):
+        raise ArgumentException("Must have only ID")
+
+    target_node = find_node(root, _id)
+    if(not target_node):
+        raise ArgumentException("Entry not found")
+    else:
+        target_node.parent.ch_needed -= 1
+        target_node.parent.children = (x for x in target_node.parent.children if x != target_node)
+        assign_ids(root)
+        yaml_write(root)
+
+if(args.edit):
+    _id, new_arg = parse_input_args(args.edit)
+
+    if((not _id) or (not new_arg)):
+        raise ArgumentException("Must have both ID and new text of item")
+
+    target_node = find_node(root, _id)
+    if(not target_node):
+        raise ArgumentException("Entry not found")
+    else:
+        target_node.name = new_arg
+        yaml_write(root)
+
+
+if(args.done):
+    _id, new_arg = parse_input_args(args.done)
+
+    if((not _id) or (new_arg)):
+        raise ArgumentException("Must have only ID")
+
+    target_node = find_node(root, _id)
+    if(not target_node):
+        raise ArgumentException("Entry not found")
+    else:
+        target_node.t_done = small_check_sign
+
+        root = update_tree(root)
+
+        yaml_write(root)
+
+if(args.list):
+    print_tree(root)
+
+if(args.setnum):
+    _id, new_arg = parse_input_args(args.setnum)
+
+    if(not new_arg):
+        raise ArgumentException("Must have both ID and new value")
+
+    target_node = find_node(root, _id)
+    if(not target_node):
+        raise ArgumentException("Entry not found")
+    else:
+        if(int(new_arg) <= 0):
+            raise ArgumentException("Number set has to be larger than 0")
+        if((not target_node.children) or (len(target_node.children) < int(new_arg))):
+            raise ArgumentException("This operation can only be applied to nodes that have sufficient number of children")
+        else:
+            target_node.ch_needed = int(new_arg)
+            root = update_tree(root)
+            yaml_write(root)
+
+if(args.reset):
+    for node in PostOrderIter(root):
+        node.t_done = cross_sign
+
+    yaml_write(root)
+
+
+if(args.uninstall):
+    if(os.path.isdir(user_data_path)):
+        shutil.rmtree(user_data_path)
+        print("Removed: " + user_data_path)
+        exit(0)
