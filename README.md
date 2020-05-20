@@ -1,9 +1,7 @@
 # PyToDo
 Lightweight ToDo app to track daily productivity. Used in Terminal. 
 
-Inspired by **[TaskBook](https://github.com/klaussinani/taskbook)**, which I love using, but its written in JS which I don't fancy.
-
-Also used in this project is **[AnyTree](https://anytree.readthedocs.io/en/2.8.0/index.html)**, great little tool for building trees in Python.
+Inspired by **[TaskBook](https://github.com/klaussinani/taskbook)**, which I love using, but its written in JS which I don't fancy. Also used in this project is **[AnyTree](https://anytree.readthedocs.io/en/2.8.0/index.html)**, great little tool for building trees in Python.
 
 ## Installation
 ### 1: Download
